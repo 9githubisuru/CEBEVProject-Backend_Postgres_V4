@@ -17,7 +17,8 @@ public class MeterValueController {
     private final MeterValueService meterService;
 
     @PostMapping
-    public String saveMeterValues(@RequestBody MeterValueRequest request) {
+    public String saveMeterValues(
+            @RequestBody MeterValueRequest request) {
         meterService.saveMeterValues(request);
         return "Meter values saved successfully!";
     }

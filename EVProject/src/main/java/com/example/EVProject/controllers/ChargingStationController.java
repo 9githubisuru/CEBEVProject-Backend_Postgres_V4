@@ -2,8 +2,12 @@ package com.example.EVProject.controllers;
 
 import com.example.EVProject.dto.ChargingStationDTO;
 import com.example.EVProject.dto.ChargingStationStatusUpdate;
+import com.example.EVProject.model.IdTagInfo;
 import com.example.EVProject.model.OcppMessageLog;
+import com.example.EVProject.model.SmartPlug;
+import com.example.EVProject.repositories.IdTagInfoRepository;
 import com.example.EVProject.repositories.OcppMessageLogRepository;
+import com.example.EVProject.repositories.SmartPlugRepository;
 import com.example.EVProject.services.ChargingStationService;
 import com.example.EVProject.utils.IdDeviceValidator;
 import com.example.EVProject.utils.OcppMessageParser;
@@ -18,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/charging-stations")
@@ -31,6 +36,12 @@ public class ChargingStationController {
 
     @Autowired
     private OcppMessageLogRepository messageLogRepo;
+
+    @Autowired
+    private SmartPlugRepository smartPlugRepository;
+
+    @Autowired
+    private IdTagInfoRepository idTagInfoRepository;
 
     @GetMapping
     public List<ChargingStationDTO> getAllStations() {
@@ -238,6 +249,130 @@ public class ChargingStationController {
         }
     }
 
+    @PostMapping("/authorize")
+    public ResponseEntity<?> handleAuthorize(
+            @RequestBody String rawBody,
+            @RequestHeader("IdDevice") String headerIdDevice) {
+
+        LocalDateTime receivedTime = LocalDateTime.now();
+
+        try {
+
+            // 2️⃣ Validate IdDevice using your util class
+            idDeviceValidator.validate(headerIdDevice);
+
+            // 3️⃣ Parse OCPP-like message
+            var parsed = OcppMessageParser.parse(rawBody);
+            if (!"Authorize".equalsIgnoreCase(parsed.action())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Invalid action type. Expected 'Authorize'"));
+            }
+
+            // 4️⃣ Extract IdDevice from request payload
+            String bodyIdDevice = parsed.payload().has("IdDevice")
+                    ? parsed.payload().get("IdDevice").asText()
+                    : null;
+
+            if (bodyIdDevice == null || bodyIdDevice.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Missing IdDevice in payload"));
+            }
+
+            // 5️⃣ Compare header and body IdDevice (must match)
+            if (!headerIdDevice.equals(bodyIdDevice)) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Header and payload IdDevice mismatch"));
+            }
+
+            // 6️⃣ Validate the IdDevice in the payload (redundant but explicit)
+            idDeviceValidator.validate(bodyIdDevice);
+
+            // 4️⃣ Check if IdTag already exists for this IdDevice
+            Optional<IdTagInfo> existingTagOpt = idTagInfoRepository.findByIdDevice(bodyIdDevice);
+            IdTagInfo tagRecord;
+            String idTag;
+            LocalDateTime expiryDate;
+
+            if (existingTagOpt.isPresent() && existingTagOpt.get().getExpiryDate().isAfter(LocalDateTime.now())) {
+                // ✅ Reuse existing IdTag if still valid
+                tagRecord = existingTagOpt.get();
+                idTag = tagRecord.getIdTag();
+                expiryDate = tagRecord.getExpiryDate();
+            } else {
+
+                // Fetch SmartPlug details (for cebSerialNo or username)
+                SmartPlug plug = smartPlugRepository.findById(bodyIdDevice)
+                        .orElseThrow(() -> new IllegalArgumentException("IdDevice not found: " + bodyIdDevice));
+
+                idDeviceValidator.validate(plug.getIdDevice());
+
+                String accountReference = (plug.getCebSerialNo() != null)
+                        ? plug.getCebSerialNo()
+                        : plug.getIdDevice();
+
+                idTag = generateIdTag(accountReference);
+                expiryDate = LocalDateTime.of(2025, 12, 31, 23, 59, 59);
+
+                tagRecord = new IdTagInfo();
+                tagRecord.setIdDevice(bodyIdDevice);
+                tagRecord.setIdTag(idTag);
+                tagRecord.setStatus("Accepted");
+                tagRecord.setExpiryDate(expiryDate);
+                idTagInfoRepository.save(tagRecord);
+            }
+
+            // 5️⃣ Build OCPP response according to documentation
+            Map<String, Object> idTagInfo = Map.of(
+                    "status", "Accepted",
+                    "expiryDate", expiryDate.toString() + "Z",
+                    "IdTag", idTag
+            );
+
+            Map<String, Object> payload = Map.of("idTagInfo", idTagInfo);
+            Object[] ocppResponse = new Object[]{
+                    3,
+                    parsed.messageId(),
+                    payload
+            };
+
+            // 6️⃣ Optional logging (for debugging/traceability)
+            if (messageLogRepo != null) {
+                OcppMessageLog log = new OcppMessageLog();
+                log.setIdDevice(bodyIdDevice);
+                log.setMessageId(parsed.messageId());
+                log.setAction(parsed.action());
+                log.setMessageTypeId(parsed.messageTypeId());
+                log.setPayload(parsed.payload().toString());
+                log.setResponse(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(ocppResponse));
+                log.setReceivedAt(receivedTime);
+                log.setRespondedAt(LocalDateTime.now());
+                messageLogRepo.save(log);
+            }
+
+            return ResponseEntity.ok(ocppResponse);
+
+        } catch (IllegalArgumentException e) {
+            Map<String, Object> idTagInfo = Map.of("status", "Invalid");
+            Map<String, Object> payload = Map.of("idTagInfo", idTagInfo);
+            Object[] ocppResponse = new Object[]{3, "AUTH-REQ-FAILED", payload};
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ocppResponse);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "INTERNAL_SERVER_ERROR"));
+        }
+    }
+
+    private String generateIdTag(String baseValue) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest((baseValue + System.currentTimeMillis()).getBytes());
+            String hex = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
+            return "IDT-" + hex.substring(0, 8).toUpperCase(); // e.g. IDT-8BC9F2C1
+        } catch (Exception e) {
+            throw new RuntimeException("Error generating IdTag", e);
+        }
+    }
 
     private Integer mapStatusStringToCode(String status) {
         return switch (status) {
