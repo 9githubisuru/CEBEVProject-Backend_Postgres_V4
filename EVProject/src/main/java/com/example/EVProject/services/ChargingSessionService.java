@@ -58,7 +58,7 @@ public class ChargingSessionService {
         dto.setChargingMode(session.getChargingMode());
         dto.setTotalConsumption(session.getTotalConsumption());
         dto.setAmount(session.getAmount());
-        dto.setDeviceId(session.getDeviceId());
+        dto.setIdDevice(session.getIdDevice());
         return dto;
     }
 
@@ -71,7 +71,7 @@ public class ChargingSessionService {
         session.setChargingMode(dto.getChargingMode());
         session.setTotalConsumption(dto.getTotalConsumption());
         session.setAmount(dto.getAmount());
-        session.setDeviceId(dto.getDeviceId());
+        session.setIdDevice(dto.getIdDevice());
         return session;
     }
 

@@ -38,10 +38,16 @@ public class ChargingStation {
     @Column(name = "solar_owner_id")
     private Integer solarOwnerId;
 
+    @Column(name = "id_device")
+    private String idDevice;
+
     @ManyToOne
     @JoinColumn(name = "solar_owner_id", referencedColumnName = "solar_owner_id", insertable = false, updatable = false)
     private RooftopSolarOwner solarOwner;
 
+    @ManyToOne
+    @JoinColumn(name = "id_device",referencedColumnName = "id_device", insertable = false,updatable = false)
+    private SmartPlug smartPlug;
     // getters and setters
 
 }

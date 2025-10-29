@@ -10,9 +10,13 @@ public class MeterValueResponse {
     private Long meterId;
     private Integer connectorId;
     private LocalDateTime timestamp;
-    private String deviceId;
+    private String idDevice;
     private Integer stationId;
     private List<SampleData> sampledValues;
+
+    public void setIdDevice(String idDevice) {
+        this.idDevice = idDevice;
+    }
 
     @Data
     public static class SampleData {

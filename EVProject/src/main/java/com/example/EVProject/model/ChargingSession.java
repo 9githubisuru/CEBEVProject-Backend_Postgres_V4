@@ -35,11 +35,11 @@ public class ChargingSession {
     @Column(name = "amount")
     private Double amount;
 
-    @Column(name = "device_id")
-    private String deviceId;
+    @Column(name = "id_device") 
+    private String idDevice;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "device_id", referencedColumnName = "device_id", insertable = false, updatable = false)
+    @JoinColumn(name = "id_device", referencedColumnName = "id_device", insertable = false, updatable = false)
     private SmartPlug smartPlug;
 
     // getters and setters

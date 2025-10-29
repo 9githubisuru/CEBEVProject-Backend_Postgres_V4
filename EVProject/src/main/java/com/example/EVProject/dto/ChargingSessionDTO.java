@@ -16,7 +16,7 @@ public class ChargingSessionDTO {
     private String chargingMode;
     private Double totalConsumption;
     private Double amount;
-    private String deviceId;
+    private String idDevice;
 
     // getters and setters
 

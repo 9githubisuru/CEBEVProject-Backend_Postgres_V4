@@ -36,7 +36,7 @@ public class SmartPlugService {
 
     private SmartPlugDTO convertToDto(SmartPlug plug) {
         SmartPlugDTO dto = new SmartPlugDTO();
-        dto.setDeviceId(plug.getDeviceId());
+        dto.setDeviceId(plug.getIdDevice());
         dto.setCebSerialNo(plug.getCebSerialNo());
         dto.setMaximumOutput(plug.getMaximumOutput());
         dto.setStationId(plug.getStationId());
@@ -45,7 +45,7 @@ public class SmartPlugService {
 
     private SmartPlug convertToEntity(SmartPlugDTO dto) {
         SmartPlug plug = new SmartPlug();
-        plug.setDeviceId(dto.getDeviceId());
+        plug.setIdDevice(dto.getDeviceId());
         plug.setCebSerialNo(dto.getCebSerialNo());
         plug.setMaximumOutput(dto.getMaximumOutput());
         plug.setStationId(dto.getStationId());

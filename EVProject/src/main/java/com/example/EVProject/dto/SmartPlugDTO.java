@@ -8,7 +8,7 @@ import lombok.Setter;
 
 public class SmartPlugDTO {
 
-    private String deviceId;
+    private String idDevice;
     private String cebSerialNo;
     private Double maximumOutput;
     private Integer stationId;
@@ -16,11 +16,11 @@ public class SmartPlugDTO {
     // getters and setters
 
     public String getDeviceId() {
-        return deviceId;
+        return idDevice;
     }
 
     public void setDeviceId(String deviceId) {
-        this.deviceId = deviceId;
+        this.idDevice = idDevice;
     }
 
     public String getCebSerialNo() {

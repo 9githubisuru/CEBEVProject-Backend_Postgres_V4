@@ -66,7 +66,7 @@ public class MeterValueService {
 
             // Get deviceId and stationId from linked session → smartPlug → station
             if (mv.getSession() != null && mv.getSession().getSmartPlug() != null) {
-                dto.setDeviceId(mv.getSession().getSmartPlug().getDeviceId());
+                dto.setIdDevice(mv.getSession().getSmartPlug().getIdDevice());
                 dto.setStationId(mv.getSession().getSmartPlug().getStation(station) != null
                         ? mv.getSession().getSmartPlug().getStation(station).getStationId()
                         : null);

@@ -24,11 +24,11 @@ public class MaintenanceLog {
     @Column(name = "anomaly_description", columnDefinition = "text")
     private String anomalyDescription;
 
-    @Column(name = "device_id")
-    private String deviceId;
+    @Column(name = "id_device")
+    private String idDevice;
 
     @ManyToOne
-    @JoinColumn(name = "device_id", referencedColumnName = "device_id", insertable = false, updatable = false)
+    @JoinColumn(name = "id_device", referencedColumnName = "id_device", insertable = false, updatable = false)
     private SmartPlug smartPlug;
 
     // getters and setters
@@ -74,11 +74,11 @@ public class MaintenanceLog {
     }
 
     public String getDeviceId() {
-        return deviceId;
+        return idDevice;
     }
 
     public void setDeviceId(String deviceId) {
-        this.deviceId = deviceId;
+        this.idDevice = idDevice;
     }
 
     public SmartPlug getSmartPlug() {
