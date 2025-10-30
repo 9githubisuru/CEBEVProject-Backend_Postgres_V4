@@ -7,7 +7,9 @@ import com.example.EVProject.repositories.ChargingSessionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -91,5 +93,27 @@ public class ChargingSessionService {
                 .collect(Collectors.toList());
     }
 
+    public Integer startNewChargingSession(String idDevice, String idTag, Integer connectorId, Long meterStart) {
+        // 1️⃣ Check for existing active session
+        Optional<ChargingSession> activeSession = repository.findByIdDeviceAndEndTimeIsNull(idDevice);
+        if (activeSession.isPresent()) {
+            // There’s already an active charging session — reject (ConcurrentTx)
+            throw new IllegalStateException("ConcurrentTx");
+        }
 
+        // 2️⃣ Create a new session
+        ChargingSession session = new ChargingSession();
+        session.setIdDevice(idDevice);
+        session.setStartTime(LocalDateTime.now());
+        session.setChargingMode("NORMAL");    // default
+        session.setTotalConsumption(0.0);
+        session.setAmount(0.0);
+        session.setSoc(0.0);
+
+        // 3️⃣ Save the new session
+        ChargingSession savedSession = repository.save(session);
+
+        // 4️⃣ Return its session ID (used as transactionId)
+        return savedSession.getSessionId();
+    }
 }

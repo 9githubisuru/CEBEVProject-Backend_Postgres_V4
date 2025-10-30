@@ -7,8 +7,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface ChargingSessionRepository extends JpaRepository<ChargingSession, Integer> {
+    Optional<ChargingSession> findByIdDeviceAndEndTimeIsNull(String idDevice);
 
     @Query("select s from ChargingSession s " +
             "join s.smartPlug sp " +

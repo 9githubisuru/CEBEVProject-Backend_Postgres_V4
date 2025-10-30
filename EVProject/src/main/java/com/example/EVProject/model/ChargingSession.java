@@ -35,8 +35,11 @@ public class ChargingSession {
     @Column(name = "amount")
     private Double amount;
 
-    @Column(name = "id_device") 
+    @Column(name = "id_device")
     private String idDevice;
+
+    @Transient
+    private String status;
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "id_device", referencedColumnName = "id_device", insertable = false, updatable = false)
