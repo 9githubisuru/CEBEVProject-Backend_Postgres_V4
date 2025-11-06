@@ -1,9 +1,12 @@
 package com.example.EVProject.services;
 
 import com.example.EVProject.dto.ChargingSessionDTO;
+import com.example.EVProject.dto.ChargingStationDTO;
 import com.example.EVProject.dto.SolarOwnerConsumptionDTO;
 import com.example.EVProject.model.ChargingSession;
 import com.example.EVProject.repositories.ChargingSessionRepository;
+import com.example.EVProject.repositories.ChargingStationRepository;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -18,8 +21,11 @@ public class ChargingSessionService {
     @Autowired
     private ChargingSessionRepository repository;
 
+    @Autowired
+    private ChargingStationRepository repo;
+
     public List<ChargingSessionDTO> getAllSessions() {
-        // line 14: make sure you call stream() properly
+        // make sure you call stream() properly
         return repository.findAll()
                 .stream()
                 .map(this::convertToDto)
@@ -27,11 +33,17 @@ public class ChargingSessionService {
     }
 
     public ChargingSessionDTO getSessionById(Integer id) {
-        // line 30: make sure orElse is called on Optional
+        // make sure orElse is called on Optional
         return repository.findById(id)
                 .map(this::convertToDto)
                 .orElse(null);
     }
+
+//    public ChargingStationDTO getStationById(Integer id){
+//        return repo.findById(id)
+//                .map(this::convertToDto)
+//                .orElse(null);
+//    }
 
     public ChargingSessionDTO saveSession(ChargingSessionDTO dto) {
         ChargingSession session = convertToEntity(dto);
@@ -116,4 +128,18 @@ public class ChargingSessionService {
         // 4️⃣ Return its session ID (used as transactionId)
         return savedSession.getSessionId();
     }
+
+    @Transactional
+    public void endChargingSession(Integer transactionId, Long meterStop, String timestampStr) {
+        var sessionOpt = repository.findById(transactionId);
+        if (sessionOpt.isEmpty()) {
+            throw new IllegalArgumentException("Session not found for transactionId: " + transactionId);
+        }
+
+        ChargingSession session = sessionOpt.get();
+        session.setEndTime(LocalDateTime.parse(timestampStr.replace("Z", "")));
+        session.setTotalConsumption((double) (meterStop != null ? meterStop : 0));
+        repository.save(session);
+    }
+
 }

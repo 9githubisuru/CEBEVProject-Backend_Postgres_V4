@@ -2,6 +2,7 @@ package com.example.EVProject.controllers;
 
 import com.example.EVProject.dto.ChargingStationDTO;
 import com.example.EVProject.dto.ChargingStationStatusUpdate;
+import com.example.EVProject.dto.MeterValueRequest;
 import com.example.EVProject.model.IdTagInfo;
 import com.example.EVProject.model.OcppMessageLog;
 import com.example.EVProject.model.SmartPlug;
@@ -10,6 +11,7 @@ import com.example.EVProject.repositories.OcppMessageLogRepository;
 import com.example.EVProject.repositories.SmartPlugRepository;
 import com.example.EVProject.services.ChargingSessionService;
 import com.example.EVProject.services.ChargingStationService;
+import com.example.EVProject.services.MeterValueService;
 import com.example.EVProject.utils.IdDeviceValidator;
 import com.example.EVProject.utils.OcppMessageParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,6 +48,9 @@ public class ChargingStationController {
 
     @Autowired
     private ChargingSessionService chargingSessionService;
+
+    @Autowired
+    private MeterValueService meterValueService;
 
     @GetMapping
     public List<ChargingStationDTO> getAllStations() {
@@ -400,7 +405,8 @@ public class ChargingStationController {
             }
 
             // 5. Validate idTag exists and is accepted
-            var tagOpt = idTagInfoRepository.findByIdTag(idTag);
+            var tagOpt = idTagInfoRepository.findByIdTagAndIdDevice(idTag, headerIdDevice);
+
             if (tagOpt.isEmpty()) {
                 Map<String, Object> idTagInfo = Map.of("status", "Invalid");
                 Object[] ocppResponse = new Object[]{3, parsed.messageId(), Map.of("idTagInfo", idTagInfo)};
@@ -497,5 +503,134 @@ public class ChargingStationController {
             default -> throw new IllegalArgumentException("Unknown status: " + status);
         };
     }
+
+    @PostMapping("/stopTransaction")
+    public ResponseEntity<?> handleStopTransaction(
+            @RequestBody String rawBody,
+            @RequestHeader("IdDevice") String idDevice) {
+
+        LocalDateTime receivedAt = LocalDateTime.now();
+        try {
+            // ✅ Validate header IdDevice
+            idDeviceValidator.validate(idDevice);
+
+            // ✅ Parse OCPP message
+            var parsed = OcppMessageParser.parse(rawBody);
+            if (parsed.messageTypeId() != 2 || !"StopTransaction".equalsIgnoreCase(parsed.action())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Invalid message type or action. Expected StopTransaction"));
+            }
+
+            var payload = parsed.payload();
+            Integer transactionId = payload.has("transactionId") ? payload.get("transactionId").asInt() : null;
+            Long meterStop = payload.has("meterStop") ? payload.get("meterStop").asLong() : null;
+            String timestamp = payload.has("timestamp") ? payload.get("timestamp").asText() : null;
+            String idTag = payload.has("idTag") ? payload.get("idTag").asText() : null;
+
+            if (transactionId == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Missing transactionId in payload"));
+            }
+
+            // ✅ Check session existence
+            var sessionOpt = chargingSessionService.getSessionById(transactionId);
+            if (sessionOpt == null) {
+                Map<String, Object> idTagInfo = Map.of("status", "Invalid");
+                Object[] ocppResponse = new Object[]{3, parsed.messageId(), Map.of("idTagInfo", idTagInfo)};
+                return ResponseEntity.ok(ocppResponse);
+            }
+
+            // ✅ Validate IdTag belongs to same IdDevice
+            if (idTag != null && !idTag.isEmpty()) {
+                var tagOpt = idTagInfoRepository.findByIdTagAndIdDevice(idTag, idDevice);
+
+                if (tagOpt.isEmpty()) {
+                    // ❌ IdTag does not belong to this IdDevice
+                    Map<String, Object> idTagInfo = Map.of("status", "Invalid");
+                    Object[] ocppResponse = new Object[]{3, parsed.messageId(), Map.of("idTagInfo", idTagInfo)};
+                    return ResponseEntity.ok(ocppResponse);
+                }
+
+                var tag = tagOpt.get();
+                if (!"Accepted".equalsIgnoreCase(tag.getStatus())) {
+                    Map<String, Object> idTagInfo = Map.of("status", tag.getStatus());
+                    Object[] ocppResponse = new Object[]{3, parsed.messageId(), Map.of("idTagInfo", idTagInfo)};
+                    return ResponseEntity.ok(ocppResponse);
+                }
+                if (tag.getExpiryDate().isBefore(LocalDateTime.now())) {
+                    Map<String, Object> idTagInfo = Map.of("status", "Expired");
+                    Object[] ocppResponse = new Object[]{3, parsed.messageId(), Map.of("idTagInfo", idTagInfo)};
+                    return ResponseEntity.ok(ocppResponse);
+                }
+            }
+
+            // ✅ Save meter values if present
+            if (payload.has("transactionData")) {
+                MeterValueRequest meterRequest = new MeterValueRequest();
+                meterRequest.setConnectorId(1);
+                meterRequest.setTransactionId(transactionId);
+
+                var readings = new java.util.ArrayList<MeterValueRequest.MeterReading>();
+                payload.get("transactionData").forEach(node -> {
+                    MeterValueRequest.MeterReading reading = new MeterValueRequest.MeterReading();
+                    reading.setTimestamp(node.get("timestamp").asText());
+                    var samples = new java.util.ArrayList<MeterValueRequest.SampleReading>();
+                    node.get("sampledValue").forEach(sv -> {
+                        MeterValueRequest.SampleReading sr = new MeterValueRequest.SampleReading();
+                        sr.setValue(sv.get("value").asText());
+                        sr.setMeasurand(sv.has("measurand") ? sv.get("measurand").asText() : "Energy.Active.Import.Register");
+                        samples.add(sr);
+                    });
+                    reading.setSampledValue(samples);
+                    readings.add(reading);
+                });
+                meterRequest.setMeterValue(readings);
+                meterValueService.saveMeterValues(meterRequest);
+            }
+
+            // ✅ Update session end info
+            chargingSessionService.endChargingSession(transactionId, meterStop, timestamp);
+
+            // ✅ Update charging station status to "Finishing"
+            if (sessionOpt.getIdDevice() != null) {
+                smartPlugRepository.findById(sessionOpt.getIdDevice()).ifPresent(plug -> {
+                    service.updateChargingStationStatus(
+                            plug.getStationId(), // ✅ correct station ID
+                            4,                   // 4 = Finishing
+                            null,
+                            LocalDateTime.now()
+                    );
+                });
+            }
+
+            // ✅ Build OCPP response
+            Map<String, Object> idTagInfo = Map.of("status", "Accepted");
+            Object[] ocppResponse = new Object[]{
+                    3,
+                    parsed.messageId(),
+                    Map.of("idTagInfo", idTagInfo)
+            };
+
+            // ✅ Log
+            OcppMessageLog log = new OcppMessageLog();
+            log.setIdDevice(idDevice);
+            log.setMessageId(parsed.messageId());
+            log.setAction(parsed.action());
+            log.setMessageTypeId(parsed.messageTypeId());
+            log.setPayload(payload.toString());
+            log.setResponse(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(ocppResponse));
+            log.setReceivedAt(receivedAt);
+            log.setRespondedAt(LocalDateTime.now());
+            messageLogRepo.save(log);
+
+            return ResponseEntity.ok(ocppResponse);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "INTERNAL_SERVER_ERROR", "message", e.getMessage()));
+        }
+    }
+
 
 }

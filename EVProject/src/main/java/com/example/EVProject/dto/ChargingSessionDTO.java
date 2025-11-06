@@ -18,6 +18,9 @@ public class ChargingSessionDTO {
     private Double amount;
     private String idDevice;
 
+
+
+
     // getters and setters
 
 }
