@@ -23,6 +23,15 @@ public class SmartPlug {
     @Column(name = "station_id")
     private Integer stationId;
 
+    @Column(name = "charge_point_model")
+    private String chargePointModel;
+
+    @Column(name = "charge_point_vendor")
+    private String chargePointVendor;
+
+    @Column(name = "firmware_version")
+    private String firmwareVersion;
+
     @ManyToOne
     @JoinColumn(name = "station_id", referencedColumnName = "station_id", insertable = false, updatable = false)
     private ChargingStation chargingStation;

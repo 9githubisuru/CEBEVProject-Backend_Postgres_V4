@@ -632,5 +632,92 @@ public class ChargingStationController {
         }
     }
 
+    @PostMapping("/bootNotification")
+    public ResponseEntity<?> handleBootNotification(
+            @RequestBody String rawBody,
+            @RequestHeader("IdDevice") String headerIdDevice) {
+
+        LocalDateTime receivedAt = LocalDateTime.now();
+
+        try {
+            // 1️⃣ Validate IdDevice header
+            idDeviceValidator.validate(headerIdDevice);
+
+            // 2️⃣ Parse the OCPP message
+            var parsed = OcppMessageParser.parse(rawBody);
+            if (parsed.messageTypeId() != 2 || !"BootNotification".equalsIgnoreCase(parsed.action())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Invalid message type or action. Expected BootNotification"));
+            }
+
+            var payload = parsed.payload();
+
+            // 3️⃣ Extract payload fields
+            String model = payload.has("chargePointModel") ? payload.get("chargePointModel").asText() : null;
+            String vendor = payload.has("chargePointVendor") ? payload.get("chargePointVendor").asText() : null;
+            String firmware = payload.has("firmwareVersion") ? payload.get("firmwareVersion").asText() : null;
+            String meterSerialNumber = payload.has("meterSerialNumber") ? payload.get("meterSerialNumber").asText() : null;
+
+            // 4️⃣ Validate that header and payload IDs match
+            if (meterSerialNumber == null || meterSerialNumber.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Missing chargePointSerialNumber in payload"));
+            }
+            if (!headerIdDevice.equals(meterSerialNumber)) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Header IdDevice and payload chargePointSerialNumber mismatch"));
+            }
+
+            // 5️⃣ Fetch or create SmartPlug record
+            SmartPlug plug = smartPlugRepository.findById(headerIdDevice)
+                    .orElseGet(() -> {
+                        SmartPlug newPlug = new SmartPlug();
+                        newPlug.setIdDevice(headerIdDevice);
+                        return newPlug;
+                    });
+
+            plug.setChargePointModel(model);
+            plug.setChargePointVendor(vendor);
+            plug.setFirmwareVersion(firmware);
+
+            smartPlugRepository.save(plug);
+
+            // 6️⃣ Build OCPP BootNotification.conf response
+            Map<String, Object> payloadConf = Map.of(
+                    "currentTime", java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).toString(),
+                    "interval", 300, // seconds
+                    "status", "Accepted"
+            );
+
+            Object[] ocppResponse = new Object[]{
+                    3,
+                    parsed.messageId(),
+                    payloadConf
+            };
+
+            // 7️⃣ Log request/response
+            OcppMessageLog log = new OcppMessageLog();
+            log.setIdDevice(headerIdDevice);
+            log.setMessageId(parsed.messageId());
+            log.setAction(parsed.action());
+            log.setMessageTypeId(parsed.messageTypeId());
+            log.setPayload(payload.toString());
+            log.setResponse(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(ocppResponse));
+            log.setReceivedAt(receivedAt);
+            log.setRespondedAt(LocalDateTime.now());
+            messageLogRepo.save(log);
+
+            // 8️⃣ Return successful response
+            return ResponseEntity.ok(ocppResponse);
+
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "INTERNAL_SERVER_ERROR", "message", e.getMessage()));
+        }
+    }
 
 }

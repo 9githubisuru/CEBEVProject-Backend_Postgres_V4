@@ -41,6 +41,7 @@ public class ChargingStation {
     @Column(name = "id_device")
     private String idDevice;
 
+
     @ManyToOne
     @JoinColumn(name = "solar_owner_id", referencedColumnName = "solar_owner_id", insertable = false, updatable = false)
     private RooftopSolarOwner solarOwner;
